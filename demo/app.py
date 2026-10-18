@@ -5,7 +5,7 @@ widgets. streamlit is imported lazily inside main() so importing this module
 never breaks the stdlib test suite.
 
 Live run:
-    pip install streamlit
+    pip install -e ".[demo]"     # or: pip install "streamlit>=1.40,<2"
     streamlit run demo/app.py
 """
 
@@ -16,8 +16,9 @@ SOPS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 
 
 def main():
-    import streamlit as st  # lazy: keeps stdlib tests dependency-free
     import sys
+
+    import streamlit as st  # lazy: keeps stdlib tests dependency-free
 
     # `streamlit run demo/app.py` puts demo/ on sys.path; retail/ lives one up.
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

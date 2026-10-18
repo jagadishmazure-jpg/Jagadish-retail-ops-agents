@@ -7,13 +7,10 @@ import pytest
 
 from retail import audit as audit_mod
 from retail import demand as demand_mod
-from retail import demo_helpers
+from retail import demo_helpers, sop_rag, text2sql, views
 from retail import inventory as inv
 from retail import orchestrator as orch_mod
 from retail import replenishment as repl
-from retail import sop_rag
-from retail import text2sql
-from retail import views
 
 SOPS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                      "docs", "sops")
@@ -402,3 +399,39 @@ def test_recent_audit_rows():
     assert len(rows) == 1
     assert set(rows[0]) == {"seq", "actor", "action", "hash"}
     assert len(rows[0]["hash"]) == 12
+
+
+# --- quote hygiene (added after review: a raw markdown heading leaked into answers) ---
+def test_sop_excerpts_have_no_markdown_and_end_on_sentences():
+    import os
+
+    from retail import sop_rag
+    here = os.path.dirname(os.path.abspath(__file__))
+    index = sop_rag.SopIndex(sop_rag.load_chunks(os.path.join(here, "..", "docs", "sops")))
+    for q in ["stockout escalation", "returns abuse thresholds", "markdown playbook", "replenishment purchase orders"]:
+        ans = index.answer(q)
+        assert ans["found"], q
+        for ex in ans["excerpts"]:
+            assert "#" not in ex["text"], ex
+            assert "\n" not in ex["text"], ex
+            assert ex["text"].rstrip().endswith((".", "!", "?", ")")), ex
+
+
+def test_clean_text_strips_markdown():
+    from retail.sop_rag import clean_text
+    assert clean_text("# Title\n\n- **Bold** item\n  wraps here.") == "Bold item wraps here."
+
+
+def test_planner_answers_never_cut_a_quote_mid_sentence():
+    import os
+    import re
+
+    from retail import inventory, orchestrator, views
+    here = os.path.dirname(os.path.abspath(__file__))
+    conn = inventory.connect()
+    views.bootstrap(conn, seed=42)
+    agent = orchestrator.PlannerAgent(conn, os.path.join(here, "..", "docs", "sops"))
+    for q in ["Who is abusing our returns policy?", "What should we mark down?"]:
+        for line in agent.ask(q)["answer"].splitlines():
+            if re.match(r"- sop-\d+", line):
+                assert line.rstrip().endswith((".", "!", "?", ")")), line

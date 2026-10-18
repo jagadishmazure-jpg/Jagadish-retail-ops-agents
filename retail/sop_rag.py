@@ -18,6 +18,36 @@ def _tokenize(text):
     return _TOKEN_RE.findall(text.lower())
 
 
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def clean_text(text):
+    """Plain text for quoting: drop markdown headings, list markers and emphasis,
+    and join hard-wrapped lines."""
+    kept = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        s = re.sub(r"^([-*+]|\d+\.)\s+", "", s)
+        s = s.replace("**", "").replace("__", "").replace("`", "")
+        kept.append(s)
+    return " ".join(" ".join(kept).split())
+
+
+def excerpt(text, max_chars=400):
+    """Whole sentences only, up to max_chars (the first sentence is always kept)."""
+    sentences = [s for s in _SENTENCE_END.split(clean_text(text)) if s]
+    if not sentences:
+        return ""
+    out = sentences[0]
+    for s in sentences[1:]:
+        if len(out) + 1 + len(s) > max_chars:
+            break
+        out += " " + s
+    return out
+
+
 def load_chunks(sops_dir):
     """Split each SOP markdown file into {source, section, text} chunks."""
     chunks = []
@@ -27,7 +57,7 @@ def load_chunks(sops_dir):
         with open(os.path.join(sops_dir, fname), encoding="utf-8") as fh:
             body = fh.read()
         parts = _HEADER_RE.split(body)
-        intro = parts[0].strip()
+        intro = clean_text(parts[0])
         if intro:
             chunks.append({"source": fname, "section": "overview", "text": intro})
         for section, text in zip(parts[1::2], parts[2::2]):
@@ -91,6 +121,6 @@ class SopIndex:
             "message": "Per the retail SOPs:",
             "citations": [h["citation"] for h in hits],
             "excerpts": [
-                {"citation": h["citation"], "text": h["text"][:400]} for h in hits
+                {"citation": h["citation"], "text": excerpt(h["text"])} for h in hits
             ],
         }
