@@ -16,6 +16,7 @@
 - A ReAct-style planner calls three tools (inventory SQL, SOP retrieval, demand signal), names the worst case, cites the policy and assigns a tier.
 - Real run: 18 SKUs at stockout risk with the worst at 0.0 days of cover against a 21-day lead time (T4); a customer with 14 returns, 10 suspicious (T3); a markdown proposal held as GATE-0001 for approval.
 - Review fix: SOP quotes leaked markdown and were cut at 200 characters; now cleaned whole sentences, with a test that no quote ends mid-sentence.
+- Security review (2026-10-18): three ways to read base tables past the view allowlist, a row cap a trailing comment could hide, and missed phone/SSN formats in feedback redaction; fixed with a SQLite authorizer, a fetch-time cap and new patterns. 80 tests.
 
 ## Purpose
 
@@ -59,8 +60,9 @@ Architecture: [knowledge/architecture.md](knowledge/architecture.md).
 
 **Feedback** (`retail/feedback.py`): a thumbs up or down per turn, plus a
 required correction on a thumbs-down, is appended to the same hash-chained
-audit log, so `verify_chain` covers feedback too. Emails and numbers of 10 or
-more digits in the correction are replaced before it is written.
+audit log, so `verify_chain` covers feedback too. Emails, phone numbers (including
+`(555) 123-4567`), SSNs and numbers of 10 or more digits in the correction
+are replaced before it is written.
 
 ## Real code and output
 
@@ -86,7 +88,7 @@ for q in ["Which SKUs are at risk of stockout, and what does the SOP say?",
 print("pending confirmation gates:", [(g["token"], g["action"]) for g in agent.gate.pending()])
 print("audit chain intact:", agent.audit.verify_chain())
 
-# Feedback capture: thumbs up/down into the same hash-chained audit log, emails and long numbers redacted.
+# Feedback capture: thumbs up/down into the same hash-chained audit log, emails, phones, SSNs and long numbers redacted.
 fb_log = AuditLog()
 capture_feedback(fb_log, session_id="s-demo", turn_id="t1", rating="up")
 fb = capture_feedback(fb_log, session_id="s-demo", turn_id="t2", rating="down",
@@ -146,18 +148,18 @@ Test suite size (real collection, re-checked in CI):
 
 <!-- run: python scripts/count_tests.py -->
 ```text
-64 tests collected
+80 tests collected
 ```
 <!-- /run -->
 
 ## Guardrails
 
-- Read-only views through a gateway; one SELECT; no base tables.
+- Read-only views through a gateway; one SELECT; no base tables, enforced behind the text rules by a SQLite authorizer that only allows reads of the four views. At most 100 rows are fetched.
 - Template SQL; the model never writes queries.
 - Markdowns and purchase orders above $5,000 need human approval by token.
 - Answers quote SOP sentences with a file and section citation.
 - Hash-chained audit of every tool call and decision.
-- Feedback corrections are capped at 2,000 characters, and emails and long numbers are redacted before they reach the append-only audit log.
+- Feedback corrections are capped at 2,000 characters, and emails, phone numbers (including `(555) 123-4567`), SSNs and long numbers are redacted before they reach the append-only audit log.
 
 ## Limitations
 
@@ -165,7 +167,15 @@ Test suite size (real collection, re-checked in CI):
 - TF-IDF retrieval sometimes adds a loosely related SOP (the returns policy appears in the stockout answer in the run above).
 - Synthetic data with one planted abuser; the thresholds are not tuned on real returns.
 - The demand signal is a fake backend in tests and the demo.
-- Feedback redaction is two regexes (emails, 10+ digit numbers), not a full PII detector.
+- Feedback redaction is four regexes (emails, phone numbers, SSN shape, 10+ digit numbers), not a full PII detector; names and street addresses are not caught.
+
+## Security review (2026-10-18)
+
+The batch-1/2 domain repos copied this spine; reviewing them found gateway and redaction bugs that turned out to start here. Reproduced in this repo, fixed, and pinned by tests (`tests/test_gateway_backstop.py`, review tests in `tests/test_feedback.py`):
+
+1. **Gateway allowlist bypass.** `check()` only looked at names written right after `FROM`/`JOIN` plus whitespace. `SELECT * FROM v_stock_status, stores` (comma join), `SELECT name, sql FROM "sqlite_master"` (quoted name) and `SELECT * FROM/**/stores` (comment as whitespace) all read base tables or the schema. A SQLite authorizer (`retail/authz.py`, ADR 0001) now lets the engine refuse any read that is not one of the four views; denials still cite `SEC-VIEW-03`.
+2. **Row cap hidden behind a trailing comment.** `_cap_limit` only recognised a `LIMIT n` at the very end of the text, so `... LIMIT 100000 -- x` appended the cap inside the comment and returned 36,864 rows; `LIMIT n OFFSET m` and `LIMIT m, n` got a second LIMIT appended and failed with a syntax error. Comments are stripped first, other LIMIT forms are left intact, and rows past 100 are never fetched (`fetchmany`).
+3. **Feedback redaction missed common phone and SSN formats.** `(555) 123-4567` and `+1 (555) 123-4567` broke the digit-run pattern on the `) ` and `123-45-6789` is only 9 digits, so all three were stored in the audit log. Phone and SSN patterns were added; dates and short IDs are still left alone (tested).
 
 ## Built vs planned
 
@@ -185,7 +195,8 @@ Test suite size (real collection, re-checked in CI):
 | Threat | Mitigation in this repo | Status |
 |---|---|---|
 | Agent orders stock or cuts prices on its own | Confirmation gate with token | Built |
-| Agent reads raw customer data | Views only, read-only gateway | Built |
+| Agent reads raw customer data | Views only, read-only gateway, SQLite authorizer, 100-row fetch cap | Built |
+| Personal data in feedback text | Email, phone, SSN and long-number redaction before the audit log | Built |
 | Misquoted policy | Whole-sentence quotes with citations | Built |
 | Approver identity not recorded | Approver in audit when wired to a real UI | Planned |
 
@@ -221,6 +232,7 @@ run; it is a plan.
 - [SOPs](docs/sops/)
 - [Implementation guide (Azure)](docs/implementation-guide.md)
 - [Interview points](docs/interview-points.md)
+- [ADR 0001: SQLite authorizer backstop](docs/adr/0001-sqlite-authorizer-backstop.md)
 - [Security policy](SECURITY.md)
 
 ## Project layout

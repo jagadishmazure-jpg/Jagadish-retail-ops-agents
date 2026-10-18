@@ -19,7 +19,7 @@ for q in ["Which SKUs are at risk of stockout, and what does the SOP say?",
 print("pending confirmation gates:", [(g["token"], g["action"]) for g in agent.gate.pending()])
 print("audit chain intact:", agent.audit.verify_chain())
 
-# Feedback capture: thumbs up/down into the same hash-chained audit log, emails and long numbers redacted.
+# Feedback capture: thumbs up/down into the same hash-chained audit log, emails, phones, SSNs and long numbers redacted.
 fb_log = AuditLog()
 capture_feedback(fb_log, session_id="s-demo", turn_id="t1", rating="up")
 fb = capture_feedback(fb_log, session_id="s-demo", turn_id="t2", rating="down",

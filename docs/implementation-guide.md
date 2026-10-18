@@ -23,12 +23,12 @@
 
 ## Guardrails to keep when going live
 
-- Read-only views through a gateway; one SELECT; no base tables.
+- Read-only views through a gateway; one SELECT; no base tables, enforced behind the text rules by a SQLite authorizer that only allows reads of the four views. At most 100 rows are fetched.
 - Template SQL; the model never writes queries.
 - Markdowns and purchase orders above $5,000 need human approval by token.
 - Answers quote SOP sentences with a file and section citation.
 - Hash-chained audit of every tool call and decision.
-- Feedback corrections are capped at 2,000 characters, and emails and long numbers are redacted before they reach the append-only audit log.
+- Feedback corrections are capped at 2,000 characters, and emails, phone numbers (including `(555) 123-4567`), SSNs and long numbers are redacted before they reach the append-only audit log.
 
 ## What to measure before calling it production-ready
 

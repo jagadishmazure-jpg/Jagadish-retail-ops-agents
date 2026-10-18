@@ -6,7 +6,7 @@ tamper evidence and is verifiable with :meth:`AuditLog.verify_chain`
 alongside every other event.
 
 Corrections are free text from a user, so before they are written, emails,
-phone-like numbers and long digit runs (card or account numbers) become
+phone numbers, SSNs and long digit runs (card or account numbers) become
 placeholders, and corrections longer than ``MAX_CORRECTION_CHARS`` are
 rejected. The audit chain is append-only, so anything written there stays.
 """
@@ -18,12 +18,18 @@ RATINGS = ("up", "down")
 MAX_CORRECTION_CHARS = 2000
 _PII = [
     (re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), "[EMAIL]"),
+    # Phone numbers in the common written forms, including "(555) 123-4567"
+    # and "+1 (555) 123-4567", which the digit-run pattern below misses.
+    (re.compile(r"(?<!\w)(?:\+?1[-.\s]?)?(?:\(\d{3}\)\s?|\d{3}[-.\s]?)\d{3}[-.\s]?\d{4}\b"),
+     "[NUMBER]"),
+    # US SSN shape (9 digits, too short for the digit-run pattern).
+    (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[SSN]"),
     (re.compile(r"(?:\+?\d[\s().-]?){9,19}\d"), "[NUMBER]"),
 ]
 
 
 def redact_correction(text):
-    """Replace emails and 10+ digit numbers; returns (text, count)."""
+    """Replace emails, phone numbers, SSNs and 10+ digit numbers; returns (text, count)."""
     count = 0
     for pattern, placeholder in _PII:
         text, n = pattern.subn(placeholder, text)

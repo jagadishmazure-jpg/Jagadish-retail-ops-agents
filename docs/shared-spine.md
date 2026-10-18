@@ -10,7 +10,7 @@ openly so nobody reads them as two unrelated systems.
 | Piece | coldchain | retail | Notes |
 |---|---|---|---|
 | Hash-chained audit log | `coldchain/audit.py` | `retail/audit.py` | Same idea; field names differ |
-| Governed SQL views + read-only gateway | `coldchain/views.py` | `retail/views.py` | One SELECT, allowlisted views only |
+| Governed SQL views + read-only gateway | `coldchain/views.py` | `retail/views.py` | One SELECT, allowlisted views only, enforced by a SQLite authorizer (`authz.py`); 100-row fetch cap |
 | Intent-to-SQL templates (no free-form SQL) | `coldchain/text2sql.py` | `retail/text2sql.py` | Domain-specific templates |
 | SOP retrieval with citations | `coldchain/sop_rag.py` | `retail/sop_rag.py` | Keyword scoring, whole-sentence excerpts |
 | Escalation tiers T1 to T4 | `coldchain/escalation.py` | `retail/replenishment.py` | Thresholds come from the SOPs |

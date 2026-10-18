@@ -13,7 +13,9 @@ sister logistics repo). Result sets are auto-capped at MAX_LIMIT rows.
 """
 
 import re
+import sqlite3
 
+from . import authz
 from . import inventory as inv
 
 MAX_LIMIT = 100
@@ -71,9 +73,10 @@ _WRITE_KEYWORDS = {
 _WRITE_PHRASES = ("replace into",)
 
 _LITERAL_RE = re.compile(r"'(?:[^']|'')*'")
-_COMMENT_RE = re.compile(r"--[^\n]*")
+_COMMENT_RE = re.compile(r"--[^\n]*|/\*.*?(?:\*/|$)", re.S)
 _TOKEN_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
 _FROM_RE = re.compile(r"\b(?:from|join)\s+([a-zA-Z_][a-zA-Z0-9_]*)", re.IGNORECASE)
+_ANY_LIMIT_RE = re.compile(r"\blimit\b", re.IGNORECASE)
 _LIMIT_RE = re.compile(r"\blimit\s+(\d+)\s*;?\s*$", re.IGNORECASE)
 
 
@@ -118,11 +121,15 @@ def check(sql):
 
 
 def _cap_limit(sql):
-    sql = sql.strip().rstrip(";")
+    sql = _COMMENT_RE.sub(" ", sql).strip().rstrip(";").strip()
     match = _LIMIT_RE.search(sql)
     if match:
         if int(match.group(1)) > MAX_LIMIT:
             sql = _LIMIT_RE.sub(f"LIMIT {MAX_LIMIT}", sql)
+        return sql
+    if _ANY_LIMIT_RE.search(_LITERAL_RE.sub(" ", sql)):
+        # LIMIT n OFFSET m, LIMIT m, n or a LIMIT inside a subquery: appending
+        # another LIMIT would be a syntax error. fetchmany() enforces the cap.
         return sql
     return f"{sql} LIMIT {MAX_LIMIT}"
 
@@ -131,9 +138,22 @@ def run_query(conn, sql, params=()):
     """Security-checked SELECT against the allowlisted views. Returns row dicts."""
     check(sql)
     sql = _cap_limit(sql)
-    cursor = conn.execute(sql, params)
-    columns = [d[0] for d in cursor.description]
-    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    # Engine-level backstop: text scanning misses comma joins, /**/ and
+    # double-quoted names, so SQLite itself refuses any non-view read.
+    with authz.views_only(conn, VIEW_SQL) as denied:
+        try:
+            cursor = conn.execute(sql, params)
+        except sqlite3.DatabaseError:
+            if denied:
+                raise SecurityError(
+                    "SEC-VIEW-03",
+                    f"identifier '{denied[0]}' is not an exposed read-only view",
+                ) from None
+            raise
+        columns = [d[0] for d in cursor.description]
+        # Whatever LIMIT text survives, rows past MAX_LIMIT are never fetched.
+        rows = cursor.fetchmany(MAX_LIMIT)
+    return [dict(zip(columns, row)) for row in rows]
 
 
 def bootstrap(conn, seed=42):

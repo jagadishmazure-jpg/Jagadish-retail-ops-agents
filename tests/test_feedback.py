@@ -117,3 +117,24 @@ def test_short_numbers_in_corrections_are_kept():
     from retail.feedback import redact_correction
 
     assert redact_correction("SKU 1042 was 3 days late") == ("SKU 1042 was 3 days late", 0)
+
+
+# ---------- review fixes (grokbot-portfolio, 2026-10-18) ----------
+@pytest.mark.parametrize("text, leaked", [
+    ("call me on (555) 123-4567 please", "123-4567"),
+    ("call me on +1 (555) 123-4567 please", "123-4567"),
+    ("call me on 555.123.4567 please", "123.4567"),
+    ("my SSN is 123-45-6789", "45-6789"),
+])
+def test_review_phone_and_ssn_formats_redacted(text, leaked):
+    from retail.feedback import redact_correction
+
+    redacted, count = redact_correction(text)
+    assert leaked not in redacted and count == 1
+
+
+def test_review_dates_and_ids_are_not_redacted():
+    from retail.feedback import redact_correction
+
+    text = "on 2026-10-18 at 14:05 lot 4471 was wrong"
+    assert redact_correction(text) == (text, 0)
