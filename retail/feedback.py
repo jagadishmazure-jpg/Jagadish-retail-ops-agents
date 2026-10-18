@@ -4,12 +4,31 @@ A thumbs up/down plus a free-text correction is appended as a ``feedback``
 audit event via :meth:`AuditLog.record`, so feedback inherits the chain's
 tamper evidence and is verifiable with :meth:`AuditLog.verify_chain`
 alongside every other event.
+
+Corrections are free text from a user, so before they are written, emails,
+phone-like numbers and long digit runs (card or account numbers) become
+placeholders, and corrections longer than ``MAX_CORRECTION_CHARS`` are
+rejected. The audit chain is append-only, so anything written there stays.
 """
-from .audit import AuditLog
+import re
 
 ACTION = "feedback"
 ACTOR = "user"
 RATINGS = ("up", "down")
+MAX_CORRECTION_CHARS = 2000
+_PII = [
+    (re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), "[EMAIL]"),
+    (re.compile(r"(?:\+?\d[\s().-]?){9,19}\d"), "[NUMBER]"),
+]
+
+
+def redact_correction(text):
+    """Replace emails and 10+ digit numbers; returns (text, count)."""
+    count = 0
+    for pattern, placeholder in _PII:
+        text, n = pattern.subn(placeholder, text)
+        count += n
+    return text, count
 
 
 class FeedbackError(ValueError):
@@ -38,11 +57,15 @@ def capture_feedback(audit, *, session_id, turn_id, rating, correction=""):
     correction = correction.strip() if isinstance(correction, str) else ""
     if rating == "down" and not correction:
         raise FeedbackError("a thumbs-down requires a non-blank correction")
+    if len(correction) > MAX_CORRECTION_CHARS:
+        raise FeedbackError(f"correction is longer than {MAX_CORRECTION_CHARS} characters")
+    correction, redactions = redact_correction(correction)
     details = {
         "session_id": session_id,
         "turn_id": turn_id,
         "rating": rating,
         "correction": correction,
+        "pii_redactions": redactions,
     }
     return audit.record(ACTOR, ACTION, details)
 

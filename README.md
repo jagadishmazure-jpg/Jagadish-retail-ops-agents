@@ -57,6 +57,11 @@ returns signals; markdowns, and purchase orders above $5,000, get a gate token
 that must be approved or denied. Demo UI: `demo/app.py` (Streamlit, optional).
 Architecture: [knowledge/architecture.md](knowledge/architecture.md).
 
+**Feedback** (`retail/feedback.py`): a thumbs up or down per turn, plus a
+required correction on a thumbs-down, is appended to the same hash-chained
+audit log, so `verify_chain` covers feedback too. Emails and numbers of 10 or
+more digits in the correction are replaced before it is written.
+
 ## Real code and output
 
 ```python
@@ -64,6 +69,8 @@ Architecture: [knowledge/architecture.md](knowledge/architecture.md).
 from pathlib import Path
 
 from retail import inventory, orchestrator, views
+from retail.audit import AuditLog
+from retail.feedback import capture_feedback, list_feedback
 
 ROOT = Path(__file__).resolve().parent.parent
 conn = inventory.connect()
@@ -78,6 +85,14 @@ for q in ["Which SKUs are at risk of stockout, and what does the SOP say?",
 
 print("pending confirmation gates:", [(g["token"], g["action"]) for g in agent.gate.pending()])
 print("audit chain intact:", agent.audit.verify_chain())
+
+# Feedback capture: thumbs up/down into the same hash-chained audit log, emails and long numbers redacted.
+fb_log = AuditLog()
+capture_feedback(fb_log, session_id="s-demo", turn_id="t1", rating="up")
+fb = capture_feedback(fb_log, session_id="s-demo", turn_id="t2", rating="down",
+                      correction="stock count was off, call me on +1 555 010 2030")
+print(f"Feedback: {len(list_feedback(fb_log))} entries, stored correction {fb['details']['correction']!r}, "
+      f"redactions {fb['details']['pii_redactions']}, chain verifies: {fb_log.verify_chain()}")
 ```
 
 Output of `python examples/demo.py` (real run, re-checked in CI):
@@ -112,6 +127,7 @@ High-impact action gated behind human confirmation: GATE-0001. Approve or deny i
 
 pending confirmation gates: [('GATE-0001', 'markdown')]
 audit chain intact: True
+Feedback: 2 entries, stored correction 'stock count was off, call me on [NUMBER]', redactions 1, chain verifies: True
 ```
 <!-- /run -->
 
@@ -130,7 +146,7 @@ Test suite size (real collection, re-checked in CI):
 
 <!-- run: python scripts/count_tests.py -->
 ```text
-53 tests collected
+64 tests collected
 ```
 <!-- /run -->
 
@@ -141,6 +157,7 @@ Test suite size (real collection, re-checked in CI):
 - Markdowns and purchase orders above $5,000 need human approval by token.
 - Answers quote SOP sentences with a file and section citation.
 - Hash-chained audit of every tool call and decision.
+- Feedback corrections are capped at 2,000 characters, and emails and long numbers are redacted before they reach the append-only audit log.
 
 ## Limitations
 
@@ -148,6 +165,7 @@ Test suite size (real collection, re-checked in CI):
 - TF-IDF retrieval sometimes adds a loosely related SOP (the returns policy appears in the stockout answer in the run above).
 - Synthetic data with one planted abuser; the thresholds are not tuned on real returns.
 - The demand signal is a fake backend in tests and the demo.
+- Feedback redaction is two regexes (emails, 10+ digit numbers), not a full PII detector.
 
 ## Built vs planned
 
@@ -159,6 +177,7 @@ Test suite size (real collection, re-checked in CI):
 | Tiers and confirmation gates | Built | `retail/replenishment.py` |
 | Planner orchestration and audit | Built | `retail/orchestrator.py`, `retail/audit.py` |
 | Streamlit demo | Built | `demo/app.py` (optional extra) |
+| User feedback in the audit chain, with redaction | Built | `retail/feedback.py` |
 | Forecasting model for demand | Planned | docs/implementation-guide.md |
 
 ## Threat model
@@ -192,6 +211,7 @@ run; it is a plan.
 | [Jagadish-fraud-detection-agents](https://github.com/jagadishmazure-jpg/Jagadish-fraud-detection-agents) | Deeper abuse and fraud detection |
 | [Jagadish-text2sql-data-agent](https://github.com/jagadishmazure-jpg/Jagadish-text2sql-data-agent) | Text-to-SQL in more depth |
 | [Jagadish-fabric-enterprise-bi](https://github.com/jagadishmazure-jpg/Jagadish-fabric-enterprise-bi) | Where the retail data would live for BI |
+| [Jagadish-agent-feedback-loop](https://github.com/jagadishmazure-jpg/Jagadish-agent-feedback-loop) | Turns captured feedback into eval cases and a regression gate |
 
 ## Documentation
 
@@ -215,6 +235,7 @@ retail/
   replenishment.py tiers, confirmation gate
   orchestrator.py  PlannerAgent
   audit.py         hash-chained log
+  feedback.py      thumbs up/down + correction into the log
 demo/app.py        optional Streamlit UI
 docs/sops/         four SOPs
 examples/demo.py   the run shown above

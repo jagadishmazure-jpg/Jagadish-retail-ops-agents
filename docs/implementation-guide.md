@@ -28,6 +28,7 @@
 - Markdowns and purchase orders above $5,000 need human approval by token.
 - Answers quote SOP sentences with a file and section citation.
 - Hash-chained audit of every tool call and decision.
+- Feedback corrections are capped at 2,000 characters, and emails and long numbers are redacted before they reach the append-only audit log.
 
 ## What to measure before calling it production-ready
 
