@@ -7,6 +7,17 @@ name = "retail-ops-agents"
 version = "0.1.0"
 description = "End-to-end retail operations AI assistant (synthetic data, stdlib only)"
 requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+demo = ["streamlit>=1.40,<2"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["retail"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "W", "I", "B"]
+ignore = ["E741", "B905"]

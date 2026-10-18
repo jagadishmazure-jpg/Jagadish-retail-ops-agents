@@ -119,7 +119,6 @@ def seed_demo_data(conn, seed=42):
     conn.executemany("INSERT INTO suppliers VALUES (?,?,?,?)", _SUPPLIERS)
     conn.executemany("INSERT INTO warehouses VALUES (?,?)", _WAREHOUSES)
 
-    velocity = {s: v for (s, _n, _c, _u, _p, v) in _SKUS}
     # supplier links: round-robin by category group, deterministic
     for i, (sku, _n, _c, _u, _p, _v) in enumerate(_SKUS):
         sup = _SUPPLIERS[i % 5][0]

@@ -10,8 +10,7 @@ import re
 from . import audit as audit_mod
 from . import demand as demand_mod
 from . import replenishment as repl
-from . import sop_rag
-from . import text2sql
+from . import sop_rag, text2sql
 
 _PO_RE = re.compile(r"purchase order|create (a )?po\b|raise (a )?po\b", re.I)
 _MARKDOWN_RE = re.compile(r"\bmark\s*-?\s*down\b|markdown|clearance", re.I)
@@ -148,7 +147,7 @@ class PlannerAgent:
         if sop_answer["found"]:
             lines.append(sop_answer["message"])
             for excerpt in sop_answer["excerpts"]:
-                lines.append(f"- {excerpt['citation']}: {excerpt['text'][:200]}")
+                lines.append(f"- {excerpt['citation']}: {excerpt['text']}")
             citations.extend(sop_answer["citations"])
         if demand_signal:
             if demand_signal.get("ok"):
