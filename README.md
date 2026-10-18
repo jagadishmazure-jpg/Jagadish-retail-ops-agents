@@ -16,7 +16,7 @@
 - A ReAct-style planner calls three tools (inventory SQL, SOP retrieval, demand signal), names the worst case, cites the policy and assigns a tier.
 - Real run: 18 SKUs at stockout risk with the worst at 0.0 days of cover against a 21-day lead time (T4); a customer with 14 returns, 10 suspicious (T3); a markdown proposal held as GATE-0001 for approval.
 - Review fix: SOP quotes leaked markdown and were cut at 200 characters; now cleaned whole sentences, with a test that no quote ends mid-sentence.
-- Security review (2026-10-18): three ways to read base tables past the view allowlist, a row cap a trailing comment could hide, and missed phone/SSN formats in feedback redaction; fixed with a SQLite authorizer, a fetch-time cap and new patterns. 80 tests.
+- Security review (2026-10-18): three ways to read base tables past the view allowlist, a row cap a trailing comment could hide, and missed phone/SSN formats in feedback redaction; fixed with a SQLite authorizer, a fetch-time cap and new patterns. 94 tests.
 
 ## Purpose
 
@@ -148,7 +148,7 @@ Test suite size (real collection, re-checked in CI):
 
 <!-- run: python scripts/count_tests.py -->
 ```text
-80 tests collected
+94 tests collected
 ```
 <!-- /run -->
 
@@ -176,6 +176,23 @@ The batch-1/2 domain repos copied this spine; reviewing them found gateway and r
 1. **Gateway allowlist bypass.** `check()` only looked at names written right after `FROM`/`JOIN` plus whitespace. `SELECT * FROM v_stock_status, stores` (comma join), `SELECT name, sql FROM "sqlite_master"` (quoted name) and `SELECT * FROM/**/stores` (comment as whitespace) all read base tables or the schema. A SQLite authorizer (`retail/authz.py`, ADR 0001) now lets the engine refuse any read that is not one of the four views; denials still cite `SEC-VIEW-03`.
 2. **Row cap hidden behind a trailing comment.** `_cap_limit` only recognised a `LIMIT n` at the very end of the text, so `... LIMIT 100000 -- x` appended the cap inside the comment and returned 36,864 rows; `LIMIT n OFFSET m` and `LIMIT m, n` got a second LIMIT appended and failed with a syntax error. Comments are stripped first, other LIMIT forms are left intact, and rows past 100 are never fetched (`fetchmany`).
 3. **Feedback redaction missed common phone and SSN formats.** `(555) 123-4567` and `+1 (555) 123-4567` broke the digit-run pattern on the `) ` and `123-45-6789` is only 9 digits, so all three were stored in the audit log. Phone and SSN patterns were added; dates and short IDs are still left alone (tested).
+
+### Authorizer template sync (2026-10-18)
+
+The SQLite authorizer was updated to the shared strict, view-aware version.
+A base-table read is allowed only when SQLite reports it on behalf of one of
+the allowed views (the authorizer's view-name argument). A read with no view
+name is denied. `sqlite_master` is always denied, even if listed, and so is
+`load_extension`. The old version falsely denied a self-join of `v_supplier_risk`; a regression test covers it.
+`tests/test_authorizer_sync.py` drives the authorizer directly, independent
+of the text check. It covers comma joins and comment-obfuscated joins with a
+base table, every view, and view self-joins.
+
+Known residual: a read that uses no columns of a table behind a view is
+allowed, because SQLite reports the unused side of a view self-join the same
+way. So `SELECT count(*) FROM <that table>` or `EXISTS (SELECT 1 FROM ...)`
+can still reveal a row count, but no column data. Any column reference is
+denied.
 
 ## Built vs planned
 
